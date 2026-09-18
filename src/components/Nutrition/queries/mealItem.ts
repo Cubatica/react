@@ -1,0 +1,43 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { MealItem } from "@/components/Nutrition/models/mealItem";
+import { addMealItem, deleteMealItem, editMealItem } from "@/components/Nutrition/api/mealItem";
+import { QueryKey } from "@/core/lib/consts";
+
+export const useAddMealItemQuery = (planId: string) => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (mealItem: MealItem) => addMealItem(mealItem),
+        onSuccess: () => {
+            queryClient.invalidateQueries({
+                queryKey: [QueryKey.NUTRITIONAL_PLAN, planId]
+            });
+        }
+    });
+};
+
+export const useEditMealItemQuery = (planId: string) => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (mealItem: MealItem) => editMealItem(mealItem),
+        onSuccess: () => {
+            queryClient.invalidateQueries({
+                queryKey: [QueryKey.NUTRITIONAL_PLAN, planId]
+            });
+        }
+    });
+};
+
+export const useDeleteMealItemQuery = (planId: string) => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) => deleteMealItem(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({
+                queryKey: [QueryKey.NUTRITIONAL_PLAN, planId]
+            });
+        }
+    });
+};

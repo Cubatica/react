@@ -1,0 +1,176 @@
+import { LoadingPlaceholder } from "@/core/ui/LoadingWidget/LoadingWidget";
+import { FormQueryErrorsSnackbar } from "@/core/ui/Widgets/FormError";
+import { WgerModal } from "@/core/ui/Modals/WgerModal";
+import { EmptyCard } from "@/components/Dashboard/EmptyCard";
+import {
+    Meal,
+    MealItem,
+    NutritionalPlan,
+    NutritionalValuesDashboardChart,
+    NutritionDiaryEntryForm,
+    PlanForm,
+    useAddDiaryEntryQuery,
+    useFetchLastNutritionalPlanQuery
+} from "@/components/Nutrition";
+import { SNACKBAR_AUTO_HIDE_DURATION } from "@/core/lib/consts";
+import { dateTimeToLocaleHHMM } from "@/core/lib/date";
+import { numberGramLocale } from "@/core/lib/numbers";
+import { makeLink, WgerLink } from "@/core/lib/url";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import HistoryEduIcon from "@mui/icons-material/HistoryEdu";
+import PhotoIcon from "@mui/icons-material/Photo";
+import {
+    Alert,
+    Avatar,
+    Button,
+    Collapse,
+    IconButton,
+    List,
+    ListItem,
+    ListItemAvatar,
+    ListItemButton,
+    ListItemIcon,
+    ListItemText,
+    Snackbar,
+} from "@mui/material";
+import Tooltip from "@mui/material/Tooltip";
+import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { DashboardCard } from "./DashboardCard";
+
+export const NutritionCard = () => {
+    const [t] = useTranslation();
+    const planQuery = useFetchLastNutritionalPlanQuery();
+
+    if (planQuery.isLoading) {
+        return <LoadingPlaceholder />;
+    }
+
+    // The data is null when the user has no plan and undefined when the query failed
+    return planQuery.data ? (
+        <NutritionCardContent plan={planQuery.data} />
+    ) : (
+        <EmptyCard title={t("nutritionalPlan")} modalContent={<PlanForm />} modalTitle={t("add")} />
+    );
+};
+
+function NutritionCardContent(props: { plan: NutritionalPlan }) {
+    const [t, i18n] = useTranslation();
+
+    const [openLogModal, setOpenLogModal] = React.useState(false);
+    const handleOpenLogModal = () => setOpenLogModal(true);
+    const handleCloseLogModal = () => setOpenLogModal(false);
+
+    return (
+        <>
+            <DashboardCard
+                title={t("nutritionalPlan")}
+                subheader={props.plan.description}
+                actions={
+                    <>
+                        <Button
+                            size="small"
+                            href={makeLink(WgerLink.NUTRITION_DETAIL, i18n.language, { id: props.plan.id! })}
+                        >
+                            {t("seeDetails")}
+                        </Button>
+                        <Tooltip title={t("nutrition.logThisMealItem")}>
+                            <IconButton onClick={handleOpenLogModal}>
+                                <HistoryEduIcon />
+                            </IconButton>
+                        </Tooltip>
+                    </>
+                }
+            >
+                <NutritionalValuesDashboardChart
+                    percentage={props.plan.percentageValuesLoggedToday}
+                    planned={props.plan.plannedNutritionalValues}
+                    logged={props.plan.loggedNutritionalValuesToday}
+                />
+                <List>
+                    {props.plan.meals.map((meal) => (
+                        <MealListItem meal={meal} planId={props.plan.id!} key={meal.id} />
+                    ))}
+                </List>
+            </DashboardCard>
+            <WgerModal title={t("nutrition.addNutritionalDiary")} isOpen={openLogModal} closeFn={handleCloseLogModal}>
+                <NutritionDiaryEntryForm
+                    closeFn={handleCloseLogModal}
+                    planId={props.plan.id!}
+                    meals={props.plan.meals}
+                />
+            </WgerModal>
+        </>
+    );
+}
+
+const MealListItem = (props: { meal: Meal; planId: string }) => {
+    const [t, i18n] = useTranslation();
+    const addDiaryEntryQuery = useAddDiaryEntryQuery(props.planId);
+
+    const [expandView, setExpandView] = useState(false);
+    const [openSnackbar, setOpenSnackbar] = React.useState(false);
+
+    const handleToggleExpand = () => setExpandView(!expandView);
+
+    const handleCloseSnackbar = (event?: React.SyntheticEvent | Event, reason?: string) => {
+        if (reason === "clickaway") {
+            return;
+        }
+        setOpenSnackbar(false);
+    };
+
+    const handleAddDiaryEntry = (item: MealItem) => {
+        addDiaryEntryQuery.mutate(item.diaryEntry(props.planId));
+        setOpenSnackbar(true);
+    };
+
+    const primaryHeader = props.meal.name ? props.meal.name : dateTimeToLocaleHHMM(props.meal.time);
+    const secondaryHeader = props.meal.name ? dateTimeToLocaleHHMM(props.meal.time) : null;
+
+    return (
+        <>
+            <FormQueryErrorsSnackbar mutationQuery={addDiaryEntryQuery} />
+            <ListItemButton onClick={handleToggleExpand} selected={expandView}>
+                <ListItemIcon>{expandView ? <ExpandLessIcon /> : <ExpandMoreIcon />}</ListItemIcon>
+                <ListItemText primary={primaryHeader} secondary={secondaryHeader} />
+            </ListItemButton>
+            <Collapse in={expandView} timeout="auto" unmountOnExit>
+                <List>
+                    {props.meal.items.map((item) => (
+                        <ListItem
+                            key={item.id}
+                            secondaryAction={
+                                <Tooltip title={t("nutrition.logThisMealItem")}>
+                                    <IconButton edge="end" onClick={() => handleAddDiaryEntry(item)}>
+                                        <HistoryEduIcon />
+                                    </IconButton>
+                                </Tooltip>
+                            }
+                        >
+                            <ListItemAvatar>
+                                <Avatar
+                                    alt={item.ingredient?.name}
+                                    src={item.ingredient?.image?.url}
+                                    sx={{ width: 45, height: 45 }}
+                                >
+                                    <PhotoIcon />
+                                </Avatar>
+                            </ListItemAvatar>
+                            <ListItemText
+                                primary={item.ingredient?.name}
+                                secondary={numberGramLocale(item.amount, i18n.language)}
+                            />
+                        </ListItem>
+                    ))}
+                </List>
+            </Collapse>
+            <Snackbar open={openSnackbar} autoHideDuration={SNACKBAR_AUTO_HIDE_DURATION} onClose={handleCloseSnackbar}>
+                <Alert onClose={handleCloseSnackbar} severity="success" sx={{ width: "100%" }}>
+                    {t("nutrition.diaryEntrySaved")}
+                </Alert>
+            </Snackbar>
+        </>
+    );
+};

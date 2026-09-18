@@ -1,0 +1,283 @@
+import CalendarDayGrid from "@/components/Calendar/Components/CalendarDayGrid";
+import CalendarHeader from "@/components/Calendar/Components/CalendarHeader";
+import { CalendarMeasurement } from "@/components/Calendar/Helpers/CalendarMeasurement";
+import {
+    categoryDisplayName,
+    MeasurementEntry,
+    useAllMeasurementEntriesQuery,
+    useBodyWeightQuery,
+    useMeasurementsCategoryQuery
+} from "@/components/Measurements";
+import { DiaryEntry, useNutritionDiaryQuery } from "@/components/Nutrition";
+import { useSessionsQuery, WorkoutSession } from "@/components/Routines";
+import { isSameDay } from "@/core/lib/date";
+import { LoadingPlaceholder } from "@/core/ui/LoadingWidget/LoadingWidget";
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import { Box, Card, CardContent, CardHeader, useMediaQuery, useTheme } from '@mui/material';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
+import Entries from './Entries';
+
+export interface DayProps {
+    date: Date,
+    weightEntry: MeasurementEntry | undefined,
+    measurements: CalendarMeasurement[],
+    nutritionLogs: DiaryEntry[],
+    workoutSessions: WorkoutSession[],
+}
+
+
+const CalendarComponent = (props: { isStandalone?: boolean }) => {
+    const [t] = useTranslation();
+
+    const currentDate = useMemo(() => new Date(), []);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const requestedDate = useMemo(() => {
+        const value = searchParams.get("date");
+        const parsed = value ? new Date(`${value}T12:00:00`) : currentDate;
+        return Number.isNaN(parsed.getTime()) ? currentDate : parsed;
+    }, [currentDate, searchParams]);
+    const [currentMonth, setCurrentMonth] = useState(requestedDate.getMonth());
+    const [currentYear, setCurrentYear] = useState(requestedDate.getFullYear());
+
+    const startOfMonth = new Date(currentYear, currentMonth, 1);
+    const startOfNextMonth = new Date(currentYear, currentMonth + 1, 1);
+
+    const isStandalone = props.isStandalone ?? true;
+
+    /*
+     * The month the calendar shows, as the instants it begins and ends at.
+     *
+     * Everything read here is stored as a datetime, and the days are grouped in
+     * the browser's timezone: a YYYY-MM-DD bound would parse to midnight in the
+     * server's and drop the entries of the last day.
+     */
+    const monthWindow = (field: string) => ({
+        [`${field}__gte`]: startOfMonth.toISOString(),
+        [`${field}__lt`]: startOfNextMonth.toISOString(),
+    });
+
+    // The calendar shows one month, so body weight is read for the same window
+    // as everything else on it
+    const weightsQuery = useBodyWeightQuery(monthWindow('date'));
+    const sessionQuery = useSessionsQuery({
+        filtersetQuerySessions: monthWindow('datetime_start'),
+        filtersetQueryLogs: monthWindow('date'),
+    });
+    // The categories name the entries below, which arrive from one read over
+    // all of them: asking per category would be a request each, and would
+    // leave out the components of a group, which are categories the list does
+    // not return on their own
+    const categoryQuery = useMeasurementsCategoryQuery();
+    const measurementQuery = useAllMeasurementEntriesQuery(monthWindow('date'));
+    const nutritionDiaryQuery = useNutritionDiaryQuery({
+        filtersetQuery: monthWindow('datetime'),
+    });
+
+    const isLoading = weightsQuery.isLoading || sessionQuery.isLoading || categoryQuery.isLoading || measurementQuery.isLoading || nutritionDiaryQuery.isLoading;
+    const isSuccess = weightsQuery.isSuccess && sessionQuery.isSuccess && categoryQuery.isSuccess && measurementQuery.isSuccess && nutritionDiaryQuery.isSuccess;
+
+    const defaultDay: DayProps = {
+        date: requestedDate,
+        weightEntry: undefined,
+        workoutSessions: [],
+        measurements: [],
+        nutritionLogs: []
+    };
+
+    const days = useMemo(() => {
+        const year = currentYear;
+        const month = currentMonth;
+        const date = new Date(year, month, 1);
+        const result: DayProps[] = [];
+
+        // Body weight has its own row on a day, and the official category it
+        // is stored in is not in this list; an entry of it is skipped here
+        // rather than shown a second time
+        const byId = new Map((categoryQuery.data ?? [])
+            .flatMap(category => [category, ...category.children])
+            .map(category => [category.id, category]));
+
+        const measurements = (measurementQuery.data ?? []).flatMap(entry => {
+            const category = byId.get(entry.category);
+
+            return category === undefined
+                ? []
+                : [new CalendarMeasurement(
+                    categoryDisplayName(category, t),
+                    category.unit,
+                    entry.value,
+                    entry.date,
+                )];
+        });
+
+        const firstDayOfMonth = new Date(year, month, 1);
+        let dayOfWeek = firstDayOfMonth.getDay();
+        dayOfWeek = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+        for (let i = 0; i < dayOfWeek; i++) {
+            result.push({
+                date: new Date(year, month, -dayOfWeek + i + 1),
+                weightEntry: undefined,
+                measurements: [],
+                nutritionLogs: [],
+                workoutSessions: []
+            });
+        }
+
+        while (date.getMonth() === month) {
+            result.push({
+                date: new Date(date),
+                weightEntry: weightsQuery.data?.find(w => isSameDay(w.date, date)),
+                measurements: measurements.filter(m => isSameDay(m.date, date)) || [],
+                workoutSessions: sessionQuery.data?.filter(m => isSameDay(m.datetimeStart, date)) ?? [],
+                nutritionLogs: nutritionDiaryQuery.data?.filter(m => isSameDay(m.datetime, date)) || [],
+            });
+            date.setDate(date.getDate() + 1);
+        }
+
+        const lastDayOfMonth = new Date(year, month + 1, 0);
+        dayOfWeek = lastDayOfMonth.getDay();
+        const remainingDays = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+
+        for (let i = 1; i <= remainingDays; i++) {
+            result.push({
+                date: new Date(year, month + 1, i),
+                weightEntry: undefined,
+                workoutSessions: [],
+                measurements: [],
+                nutritionLogs: []
+            });
+        }
+
+        return result;
+    }, [currentYear, currentMonth, weightsQuery.data, sessionQuery.data, categoryQuery.data, measurementQuery.data, nutritionDiaryQuery.data, t]);
+    const [selectedDay, setSelectedDay] = useState<DayProps>(days.find(day => isSameDay(day.date, requestedDate)) || defaultDay);
+
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+    useEffect(() => {
+        if (isSuccess) {
+            const requestedDay = days.find(day => isSameDay(day.date, requestedDate));
+            if (requestedDay) {
+                setSelectedDay(requestedDay);
+            }
+        }
+    }, [days, isSuccess, requestedDate]);
+
+
+    useEffect(() => {
+        setCurrentMonth(selectedDay.date.getMonth());
+        setCurrentYear(selectedDay.date.getFullYear());
+    }, [selectedDay]);
+
+    const handleDayClick = (day: DayProps) => {
+        setSelectedDay(day);
+        const localDate = `${day.date.getFullYear()}-${String(day.date.getMonth() + 1).padStart(2, "0")}-${String(day.date.getDate()).padStart(2, "0")}`;
+        setSearchParams({ date: localDate }, { replace: true });
+    };
+
+    const handlePrevMonth = () => {
+        if (currentMonth === 0) {
+            setCurrentMonth(11);
+            setCurrentYear(currentYear - 1);
+        } else {
+            setCurrentMonth(currentMonth - 1);
+        }
+    };
+
+    const handleNextMonth = () => {
+        if (currentMonth < currentDate.getMonth() || currentYear < currentDate.getFullYear()) {
+            if (currentMonth === 11) {
+                setCurrentMonth(0);
+                setCurrentYear(currentYear + 1);
+            } else {
+                setCurrentMonth(currentMonth + 1);
+            }
+        }
+    };
+
+    return (
+        <Box sx={{
+            display: 'flex',
+            gap: 2,
+            flexDirection: { xs: 'column', md: 'row' },
+            // the 130px account for the app bar and the page's vertical margins; capping
+            // the height makes the entries panel scroll internally instead of the page.
+            // Embedded in the dashboard the height stays content-driven
+            height: { xs: 'auto', md: isStandalone ? 'calc(100vh - 130px)' : 'auto' },
+            width: '100%',
+        }}>
+            <Card sx={{
+                boxShadow: isStandalone ? undefined : 'none',
+                width: { xs: 'auto', md: '65%' },
+                height: { xs: 'auto', md: '100%' },
+                // m: { xs: 0, sm: 1, md: 2 },
+                // p: { xs: 1, sm: 1.5, md: 2 },
+                display: 'flex',
+                flexDirection: 'column'
+            }}>
+                <CardHeader
+                    sx={{ '& .MuiCardHeader-content': { width: '100%' } }}
+                    title={
+                        <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                // marginBottom: '16px'
+                            }}>
+                                <CalendarMonthIcon style={{
+                                    width: isMobile ? '28px' : '32px',
+                                    height: isMobile ? '28px' : '32px',
+                                    marginRight: '12px'
+                                }} />
+                                <span style={{
+                                    fontSize: isMobile ? '1.5rem' : '1.8rem',
+                                    fontWeight: 'bold'
+                                }}>
+                                    {t("calendar")}
+                                </span>
+                            </div>
+                        </div>
+                    }
+                />
+                <CardContent sx={{
+                    overflow: 'auto',
+                    flex: 1,
+                    '&:last-child': { paddingBottom: 2 }
+                }}>
+                    <CalendarHeader
+                        currentMonth={currentMonth}
+                        currentYear={currentYear}
+                        onPrevMonth={handlePrevMonth}
+                        onNextMonth={handleNextMonth}
+                    />
+                    <CalendarDayGrid
+                        days={days}
+                        currentMonth={currentMonth}
+                        currentDate={currentDate}
+                        selectedDay={selectedDay}
+                        onDayClick={handleDayClick}
+                    />
+                </CardContent>
+            </Card>
+            {isLoading &&
+                <Card
+                    sx={{
+                        width: { xs: 'auto', md: '65%' },
+                        height: { xs: '60%', md: '100%' },
+                        // m: { xs: 0, sm: 1, md: 2 },
+                        // p: { xs: 1, sm: 1.5, md: 2 }
+                    }}
+                >
+                    <LoadingPlaceholder />
+                </Card>}
+
+            {isSuccess && <Entries selectedDay={selectedDay} isStandalone={isStandalone} />}
+        </Box>
+    );
+};
+
+export default CalendarComponent;

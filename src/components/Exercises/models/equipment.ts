@@ -1,0 +1,33 @@
+import i18n from "@/i18n";
+import { Adapter } from "@/core/lib/Adapter";
+import { getTranslationKey } from "@/core/lib/strings";
+
+export class Equipment {
+
+    constructor(
+        public id: number,
+        public name: string
+    ) {
+    }
+
+    public get translatedName(): string {
+        return i18n.t(getTranslationKey(this.name), { defaultValue: this.name });
+    }
+}
+
+export class EquipmentAdapter implements Adapter<Equipment> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fromJson(item: any): Equipment {
+        return new Equipment(
+            item.id,
+            item.name,
+        );
+    }
+
+    toJson(item: Equipment) {
+        return {
+            id: item.id,
+            name: item.name,
+        };
+    }
+}

@@ -1,0 +1,144 @@
+// @ts-check
+import eslint from '@eslint/js';
+import tseslint from 'typescript-eslint';
+import reactPlugin from '@eslint-react/eslint-plugin';
+import reactHooksPlugin from 'eslint-plugin-react-hooks';
+import stylisticPlugin from '@stylistic/eslint-plugin';
+import importPlugin from 'eslint-plugin-import-x';
+
+// Domains with a public surface (`index.ts`). Other code must import via the
+// domain root, never via internal sub-paths.
+const DOMAINS = [
+    'Exercises',
+    'Routines',
+    'Weight',
+    'Nutrition',
+    'Measurements',
+    'Trophies',
+    'User',
+];
+
+// The key must not import the values: nutrition reads measurements, not the
+// other way round, or the two form a module initialisation cycle.
+const FORBIDDEN_DEPENDENCIES = {
+    Measurements: ['Nutrition'],
+};
+
+const restrictAllDomains = {
+    "patterns": [{
+        "group": DOMAINS.map(d => `@/components/${d}/*`),
+        "message": "Import via the domain root (e.g. '@/components/Exercises'), not internal sub-paths.",
+    }]
+};
+
+// Per-domain override: files inside `components/<Domain>/` may import their
+// OWN internals via absolute paths (though relative paths are preferred).
+// Cross-domain absolute internals remain forbidden.
+const domainOverrides = DOMAINS.map(domain => ({
+    files: [`src/components/${domain}/**/*.{ts,tsx}`],
+    rules: {
+        "no-restricted-imports": ["error", {
+            "patterns": [
+                {
+                    "group": DOMAINS
+                        .filter(d => d !== domain)
+                        .map(d => `@/components/${d}/*`),
+                    "message": `Import other domains via their public surface (e.g. '@/components/${DOMAINS[0]}'), not internal sub-paths.`,
+                },
+                ...(FORBIDDEN_DEPENDENCIES[domain] ?? []).map(target => ({
+                    "group": [`@/components/${target}`, `@/components/${target}/*`],
+                    "message": `${domain} must not import ${target}: the dependency runs the other way. Take what you need as a prop, from the page that composes both.`,
+                })),
+            ]
+        }],
+    }
+}));
+
+export default tseslint.config(
+    eslint.configs.recommended,
+    tseslint.configs.recommended,
+    {
+        files: ['**/*.{js,jsx,ts,tsx}'],
+        plugins: {
+            '@eslint-react': reactPlugin,
+            'react-hooks': reactHooksPlugin,
+            '@stylistic': stylisticPlugin,
+            'import-x': importPlugin,
+        },
+        rules: {
+            'react-hooks/rules-of-hooks': 'error',
+            'react-hooks/exhaustive-deps': 'warn',
+
+            // React rules. Duplicate JSX props need no rule here: tsc already
+            // rejects them (TS17001).
+            '@eslint-react/no-missing-key': 'error',
+            '@eslint-react/dom-no-unsafe-target-blank': 'error',
+            '@eslint-react/no-nested-component-definitions': 'error',
+            '@eslint-react/no-array-index-key': 'warn',
+            '@eslint-react/jsx-no-children-prop': 'error',
+            '@eslint-react/dom-no-void-elements-with-children': 'error',
+            '@stylistic/jsx-self-closing-comp': 'error',
+
+            // Core JS hygiene.
+            'eqeqeq': ['error', 'smart'],
+            'no-var': 'error',
+            'prefer-const': 'error',
+            'no-console': ['warn', {allow: ['warn', 'error']}],
+        },
+    },
+
+    {
+        files: ['**/*.ts', '**/*.tsx'],
+        rules: {
+            'semi': ['error', 'always'],
+            'camelcase': ['warn'],
+            "@typescript-eslint/no-unused-vars": ["warn"],
+            "@typescript-eslint/no-explicit-any": ["error"],
+            "@typescript-eslint/no-non-null-asserted-optional-chain": ["warn"],
+            "@typescript-eslint/no-unsafe-function-type": ["warn"],
+            "@typescript-eslint/ban-ts-comment": [
+                "warn", // changed to warning
+                {
+                    "ts-ignore": "allow-with-description",
+                    "ts-expect-error": "allow-with-description",
+                    "minimumDescriptionLength": 10
+                }
+            ],
+            // Auto-fixable: consolidates multiple imports from the same module.
+            "import-x/no-duplicates": ["error"],
+            // Domain boundary: consumers must import via the public surface
+            // (index.ts), not internal sub-paths.
+            "no-restricted-imports": ["error", restrictAllDomains],
+        }
+    },
+    // Per-domain overrides: relax the rule for same-domain imports.
+    ...domainOverrides,
+    {
+        // The infrastructure layer (api/ files inside each domain, core/lib,
+        // tests/, types.ts) sits BELOW the consumer code. Importing from a
+        // domain barrel here would create circular dependencies (the barrel
+        // pulls in queries which depend on api). These files must use direct
+        // sub-paths.
+        //
+        // Test files are also exempted — they legitimately mock internal
+        // modules across domains (e.g. a Calendar test that asserts on
+        // multiple domains' api functions).
+        files: [
+            'src/components/*/api/**',
+            'src/core/api/**',
+            'src/core/lib/**',
+            'src/tests/**',
+            'src/types.ts',
+            'src/**/*.test.{ts,tsx}',
+        ],
+        rules: {
+            "no-restricted-imports": "off",
+            "no-console": "off",
+            // API adapters and test fixtures mirror the backend's snake_case field names
+            "camelcase": "off",
+        }
+    },
+    {
+        ignores: ['build/**/*']
+    }
+);
