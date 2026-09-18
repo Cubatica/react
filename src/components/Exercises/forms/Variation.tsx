@@ -1,0 +1,88 @@
+import React, { useState } from "react";
+import { VariationSelect } from "@/components/Exercises/forms/VariationSelect";
+import { useEditExerciseQuery } from "@/components/Exercises/queries";
+import { useProfileQuery } from "@/components/User";
+import { randomUUID } from "@/core/lib/uuid";
+
+export function EditExerciseVariation(props: { exerciseId: number, initial: string | null }) {
+    const [selectedVariationId, setSelectedVariationId] = useState<string | null>(props.initial);
+    const [selectedNewVariationExerciseId, setSelectedNewVariationExerciseId] = useState<number | null>(null);
+    const profileQuery = useProfileQuery();
+    const editMutation = useEditExerciseQuery();
+
+    const handleChangeVariationId = async (id: string | null) => {
+        setSelectedVariationId(id);
+        setSelectedNewVariationExerciseId(null);
+
+        await editMutation.mutateAsync({
+            id: props.exerciseId,
+            data: {
+                // eslint-disable-next-line camelcase
+                variation_group: id,
+                // eslint-disable-next-line camelcase
+                license_author: profileQuery.data!.username
+            },
+        });
+    };
+
+    const handleChangeNewVariationExerciseId = async (id: number | null) => {
+        const previousVariationId = selectedVariationId;
+        setSelectedNewVariationExerciseId(id);
+        setSelectedVariationId(null);
+
+        if (id !== null) {
+            // Generate a new variation group UUID and assign both exercises to it
+            const variationGroup = randomUUID();
+            try {
+                await editMutation.mutateAsync({
+                    id: props.exerciseId,
+                    data: {
+                        // eslint-disable-next-line camelcase
+                        variation_group: variationGroup,
+                        // eslint-disable-next-line camelcase
+                        license_author: profileQuery.data!.username
+                    },
+                });
+                await editMutation.mutateAsync({
+                    id,
+                    data: {
+                        // eslint-disable-next-line camelcase
+                        variation_group: variationGroup,
+                        // eslint-disable-next-line camelcase
+                        license_author: profileQuery.data!.username
+                    },
+                });
+                setSelectedVariationId(variationGroup);
+                setSelectedNewVariationExerciseId(null);
+            } catch {
+                // Rollback on failure
+                setSelectedVariationId(previousVariationId);
+                setSelectedNewVariationExerciseId(null);
+            }
+        } else {
+            try {
+                await editMutation.mutateAsync({
+                    id: props.exerciseId,
+                    data: {
+                        // eslint-disable-next-line camelcase
+                        variation_group: null,
+                        // eslint-disable-next-line camelcase
+                        license_author: profileQuery.data!.username
+                    },
+                });
+            } catch {
+                setSelectedVariationId(previousVariationId);
+            }
+        }
+    };
+
+    return (
+        <VariationSelect
+            exerciseId={props.exerciseId}
+            selectedVariationId={selectedVariationId}
+            selectedNewVariationExerciseId={selectedNewVariationExerciseId}
+            onChangeVariationId={handleChangeVariationId}
+            onChangeNewVariationExerciseId={handleChangeNewVariationExerciseId}
+        />
+    );
+}

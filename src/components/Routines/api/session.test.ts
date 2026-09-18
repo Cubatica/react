@@ -1,0 +1,268 @@
+import * as exerciseService from "@/components/Exercises/api/exercise";
+import { addSession, editSession, getSessions, searchSessions } from "@/components/Routines/api/session";
+import { WorkoutSession } from "@/components/Routines/models/WorkoutSession";
+import { testExerciseBenchPress, testExerciseSquats } from "@/tests/exerciseTestdata";
+import axios from "axios";
+import type { Mock } from 'vitest';
+
+vi.mock("axios");
+vi.mock("@/components/Exercises/api/exercise");
+
+// Recognisable test-marker UUIDs matching the Django fixtures convention
+const SESSION_UUID = 'bbbbbbbb-bbbb-bbbb-bbbb-000000024284';
+const SESSION_UUID_2 = 'bbbbbbbb-bbbb-bbbb-bbbb-000000000001';
+const LOG_UUID_1 = 'aaaaaaaa-aaaa-aaaa-aaaa-000004072327';
+const LOG_UUID_2 = 'aaaaaaaa-aaaa-aaaa-aaaa-000004072329';
+
+describe("Session service tests", () => {
+    beforeEach(() => {
+        vi.resetAllMocks();
+    });
+
+    test('Loads sessions with associated logs and exercises', async () => {
+        // Arrange
+        (axios.get as Mock).mockImplementationOnce(() => {
+            return Promise.resolve({
+                data: {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            "id": LOG_UUID_1,
+                            "date": "2025-08-07T00:00:00+02:00",
+                            "session": SESSION_UUID,
+                            "routine": 39764,
+                            "iteration": 1,
+                            "slot_entry": 316691,
+                            "next_log": null,
+                            "exercise": 345,
+                            "repetitions_unit": 1,
+                            "repetitions": "2.00",
+                            "repetitions_target": "1.00",
+                            "weight_unit": 1,
+                            "weight": "33.00",
+                            "weight_target": null,
+                            "rir": "0.5",
+                            "rir_target": null,
+                            "rest": 167,
+                            "rest_target": null
+                        },
+                        {
+                            "id": LOG_UUID_2,
+                            "date": "2025-08-07T00:00:00+02:00",
+                            "session": SESSION_UUID,
+                            "routine": 39764,
+                            "iteration": 1,
+                            "slot_entry": 316693,
+                            "next_log": null,
+                            "exercise": 2,
+                            "repetitions_unit": 1,
+                            "repetitions": "2.00",
+                            "repetitions_target": "3.00",
+                            "weight_unit": 1,
+                            "weight": "46.00",
+                            "weight_target": null,
+                            "rir": "1.0",
+                            "rir_target": null,
+                            "rest": 178,
+                            "rest_target": null
+                        },
+                    ]
+                }
+            });
+        });
+
+        (axios.get as Mock).mockImplementationOnce(() => {
+            return Promise.resolve({
+                data: {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            "id": SESSION_UUID,
+                            "routine": 39764,
+                            "day": null,
+                            "notes": null,
+                            "impression": "3",
+                            "datetime_start": "2025-08-07T20:10:58+02:00",
+                            "datetime_end": "2025-08-07T23:28:21+02:00"
+                        },
+                    ]
+                }
+            });
+        });
+
+        (exerciseService.getExercisesByIds as Mock).mockResolvedValue([testExerciseSquats, testExerciseBenchPress]);
+
+        // Act
+        const sessions = await getSessions();
+
+        // Assert
+        expect(sessions).toHaveLength(1);
+        expect(sessions[0].id).toBe(SESSION_UUID);
+        expect(sessions[0].logs).toHaveLength(2);
+        expect(sessions[0].logs[0].exerciseId).toBe(345);
+        expect(sessions[0].logs[0].exerciseObj).toBeDefined();
+        expect(sessions[0].logs[0].exerciseObj?.getTranslation().name).toBe('Squats');
+        expect(sessions[0].logs[1].exerciseId).toBe(2);
+        expect(sessions[0].logs[1].exerciseObj).toBeDefined();
+        expect(sessions[0].logs[1].exerciseObj?.getTranslation().name).toBe('Benchpress');
+
+        expect(exerciseService.getExercisesByIds).toHaveBeenCalledWith([345, 2]);
+
+        // Check that API calls were made correctly
+        expect(axios.get).toHaveBeenNthCalledWith(
+            1,
+            expect.stringContaining('/workoutlog/'),
+            expect.anything()
+        );
+        expect(axios.get).toHaveBeenNthCalledWith(
+            2,
+            expect.stringContaining('/workoutsession/'),
+            expect.anything()
+        );
+    });
+
+    // Keep the existing test
+    test('Correctly filters sessions and log entries', async () => {
+        (axios.get as Mock).mockImplementation(() => {
+            return Promise.resolve({
+                data: {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: []
+                }
+            });
+        });
+
+        await getSessions({
+            filtersetQueryLogs: { foo: "bar" },
+            filtersetQuerySessions: { baz: 1234 }
+        });
+
+        // Without any logs there is nothing to look the exercises up for
+        expect(exerciseService.getExercisesByIds).not.toHaveBeenCalled();
+        expect(axios.get).toHaveBeenCalledTimes(2);
+        expect(axios.get).toHaveBeenNthCalledWith(1,
+            expect.stringContaining('foo=bar'),
+            expect.anything()
+        );
+        expect(axios.get).toHaveBeenNthCalledWith(2,
+            expect.stringContaining('baz=1234'),
+            expect.anything()
+        );
+    });
+
+    test('searchSessions parses every session of the query', async () => {
+        const apiResponse = {
+            count: 2, next: null, previous: null,
+            results: [
+                {
+                    id: SESSION_UUID, routine: 39764, day: 5,
+                    notes: "ok",
+                    impression: "3",
+                    datetime_start: "2025-08-07T20:10:58+02:00",
+                    datetime_end: "2025-08-07T23:28:21+02:00",
+                },
+                {
+                    id: SESSION_UUID_2, routine: 39764, day: 5,
+                    notes: null,
+                    impression: "2",
+                    datetime_start: "2025-08-07T08:00:00+02:00",
+                    datetime_end: null,
+                },
+            ],
+        };
+        (axios.get as Mock).mockResolvedValue({ data: apiResponse });
+
+        const result = await searchSessions({ routine: 39764, datetime_start__date: "2025-08-07" });
+
+        const url = (axios.get as Mock).mock.calls[0][0] as string;
+        expect(url).toContain("/api/v2/workoutsession/");
+        expect(url).toContain("routine=39764");
+        expect(url).toContain("datetime_start__date=2025-08-07");
+        expect(result.every(session => session instanceof WorkoutSession)).toBe(true);
+        expect(result.map(session => session.id)).toEqual([SESSION_UUID, SESSION_UUID_2]);
+    });
+
+    test('searchSessions returns an empty list when nothing matches', async () => {
+        (axios.get as Mock).mockResolvedValue({
+            data: { count: 0, next: null, previous: null, results: [] },
+        });
+
+        const result = await searchSessions({ routine: 1 });
+
+        expect(result).toEqual([]);
+    });
+
+    test('addSession POSTs the serialized session and returns the parsed session', async () => {
+        (axios.post as Mock).mockResolvedValue({
+            data: {
+                id: SESSION_UUID_2, routine: 39764, day: 5,
+                notes: null, impression: "3",
+                datetime_start: "2025-08-07T00:00:00+02:00", datetime_end: null,
+            },
+        });
+
+        const result = await addSession(new WorkoutSession({
+            id: null,
+            routineId: 39764,
+            dayId: 5,
+            notes: null,
+            impression: "3",
+            datetimeStart: new Date(2025, 7, 7, 20, 10),
+            datetimeEnd: null,
+        }));
+
+        expect(axios.post).toHaveBeenCalledTimes(1);
+        const [url, body] = (axios.post as Mock).mock.calls[0];
+        expect(url).toMatch(/\/api\/v2\/workoutsession\/$/);
+        expect(body).toEqual({
+            routine: 39764,
+            day: 5,
+            notes: null,
+            impression: "3",
+            datetime_start: new Date(2025, 7, 7, 20, 10).toISOString(),
+            datetime_end: null,
+        });
+        expect(result).toBeInstanceOf(WorkoutSession);
+        expect(result.id).toBe(SESSION_UUID_2);
+    });
+
+    test('editSession PATCHes /workoutsession/<id>/ with the serialized session', async () => {
+        (axios.patch as Mock).mockResolvedValue({
+            data: {
+                id: SESSION_UUID, routine: 39764, day: 5,
+                notes: "edited", impression: "3",
+                datetime_start: "2025-08-07T00:00:00+02:00", datetime_end: null,
+            },
+        });
+
+        const result = await editSession(new WorkoutSession({
+            id: SESSION_UUID,
+            routineId: 39764,
+            dayId: 5,
+            notes: "edited",
+            impression: "3",
+            datetimeStart: new Date(2025, 7, 7, 20, 10),
+            datetimeEnd: null,
+        }));
+
+        expect(axios.patch).toHaveBeenCalledTimes(1);
+        const [url, body] = (axios.patch as Mock).mock.calls[0];
+        expect(url).toMatch(new RegExp(`/api/v2/workoutsession/${SESSION_UUID}/$`));
+        expect(body).toEqual({
+            id: SESSION_UUID,
+            routine: 39764,
+            day: 5,
+            notes: "edited",
+            impression: "3",
+            datetime_start: new Date(2025, 7, 7, 20, 10).toISOString(),
+            datetime_end: null,
+        });
+        expect(result.notes).toBe("edited");
+    });
+});
