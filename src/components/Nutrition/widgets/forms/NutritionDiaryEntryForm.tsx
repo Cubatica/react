@@ -1,0 +1,238 @@
+import { Autocomplete, Button, InputAdornment, MenuItem, Select, Stack, TextField } from "@mui/material";
+import { DateTimePicker, LocalizationProvider } from "@mui/x-date-pickers";
+import { AdapterLuxon } from "@mui/x-date-pickers/AdapterLuxon";
+import { DiaryEntry } from "@/components/Nutrition/models/diaryEntry";
+import { Ingredient } from "@/components/Nutrition/models/Ingredient";
+import { Meal } from "@/components/Nutrition/models/meal";
+import { NutritionWeightUnit } from "@/components/Nutrition/models/weightUnit";
+import {
+    useAddDiaryEntryQuery,
+    useDeleteDiaryEntryQuery,
+    useEditDiaryEntryQuery
+} from "@/components/Nutrition/queries";
+import { IngredientAutocompleter } from "@/components/Nutrition/widgets/IngredientAutocompleter";
+import { FormQueryErrors } from "@/core/ui/Widgets/FormError";
+import { Form, Formik } from "formik";
+import { DateTime } from "luxon";
+import React, { useState } from 'react';
+import { useTranslation } from "react-i18next";
+import { dateToYYYYMMDD } from "@/core/lib/date";
+import * as yup from "yup";
+
+const GRAM_UNIT_VALUE = 'g';
+
+type NutritionDiaryEntryFormProps = {
+    planId: string,
+    entry?: DiaryEntry,
+    mealId?: string | null,
+    meals?: Meal[],
+    closeFn?: () => void,
+}
+
+export const NutritionDiaryEntryForm = ({ planId, entry, mealId, meals, closeFn }: NutritionDiaryEntryFormProps) => {
+
+    const meal = mealId === undefined ? null : mealId;
+    const mealObjs = meals === undefined ? [] : meals;
+
+    const [t, i18n] = useTranslation();
+    const addDiaryQuery = useAddDiaryEntryQuery(planId);
+    const editDiaryQuery = useEditDiaryEntryQuery(planId);
+    const deleteDiaryQuery = useDeleteDiaryEntryQuery(planId);
+    const [dateValue, setDateValue] = useState<DateTime | null>(entry ? DateTime.fromJSDate(entry.datetime) : DateTime.now());
+    const [selectedMeal, setSelectedMeal] = useState<string | null>(meal ?? entry?.mealId ?? null);
+
+    const [selectedIngredient, setSelectedIngredient] = useState<Ingredient | null>(entry?.ingredient ?? null);
+    const [selectedUnit, setSelectedUnit] = useState<NutritionWeightUnit | null>(entry?.weightUnit ?? null);
+    const [weightUnits, setWeightUnits] = useState<NutritionWeightUnit[]>(entry?.ingredient?.weightUnits ?? []);
+
+    const validationSchema = yup.object({
+        amount: yup
+            .number()
+            .required(t('forms.fieldRequired'))
+            .max(1000, t('forms.maxValue', { value: '1000' }))
+            .min(1, t('forms.minValue', { value: '1' })),
+        ingredient: yup
+            .number()
+            .nullable()
+            .moreThan(0, t('forms.fieldRequired'))
+            .required(t('forms.fieldRequired')),
+        datetime: yup
+            .date()
+            .required(t('forms.fieldRequired')),
+    });
+
+    // The dialog closes only once the server took the change, so a rejected
+    // write is shown instead of disappearing with it
+    const closeOnSuccess = { onSuccess: () => closeFn?.() };
+
+    const handleDelete = () => {
+        if (entry) {
+            deleteDiaryQuery.mutate(entry.id!, closeOnSuccess);
+            return;
+        }
+        closeFn?.();
+    };
+
+    const handleUnitChange = (value: string) => {
+        if (value === GRAM_UNIT_VALUE) {
+            setSelectedUnit(null);
+        } else {
+            const unit = weightUnits.find(u => u.id === Number(value));
+            setSelectedUnit(unit ?? null);
+        }
+    };
+
+    return (
+        (<Formik
+            initialValues={{
+                datetime: entry ? entry.datetime : new Date(),
+                amount: entry ? entry.amount : 0,
+                ingredient: entry ? entry.ingredientId : null,
+            }}
+            validationSchema={validationSchema}
+            onSubmit={async (values) => {
+
+                // Make sure "amount" is a number
+                const newAmount = Number(values.amount);
+
+                if (entry) {
+                    // Edit
+                    const newDiaryEntry = DiaryEntry.clone(entry, {
+                        mealId: selectedMeal,
+                        planId: planId,
+                        amount: newAmount,
+                        datetime: values.datetime,
+                        ingredientId: values.ingredient!,
+                        ingredient: selectedIngredient,
+                        weightUnitId: selectedUnit?.id ?? null,
+                        weightUnit: selectedUnit,
+                    });
+                    editDiaryQuery.mutate(newDiaryEntry, closeOnSuccess);
+                } else {
+                    // Add
+                    addDiaryQuery.mutate(new DiaryEntry({
+                        planId: planId,
+                        amount: newAmount,
+                        datetime: values.datetime,
+                        ingredientId: values.ingredient!,
+                        mealId: selectedMeal,
+                        weightUnitId: selectedUnit?.id ?? null,
+                        weightUnit: selectedUnit,
+                    }), closeOnSuccess);
+                }
+            }}
+        >
+            {formik => (
+                <Form>
+                    <Stack spacing={2}>
+                        <IngredientAutocompleter
+                            callback={(value: Ingredient | null) => {
+                                formik.setFieldTouched('ingredient', true);
+                                formik.setFieldValue('ingredient', value?.id ?? null);
+                                setSelectedIngredient(value);
+                                setWeightUnits(value?.weightUnits ?? []);
+                                setSelectedUnit(null);
+                            }}
+                            initialIngredient={entry ? entry.ingredient : null}
+                            />
+                            {formik.touched.ingredient && formik.errors.ingredient && (
+                            <div style={{ color: 'crimson', fontSize: '0.7rem', marginLeft: '12px' }}>
+                                {formik.errors.ingredient}
+                            </div>
+                            )}
+                        <TextField
+                            fullWidth
+                            id="amount"
+                            label={'amount'}
+                            slotProps={{
+                                input: {
+                                    endAdornment: (
+                                        <InputAdornment position="end">
+                                            {weightUnits.length > 0 ? (
+                                                <Select
+                                                    variant="standard"
+                                                    disableUnderline
+                                                    value={selectedUnit?.id?.toString() ?? GRAM_UNIT_VALUE}
+                                                    onChange={(e) => handleUnitChange(e.target.value)}
+                                                >
+                                                    <MenuItem value={GRAM_UNIT_VALUE}>
+                                                        {t('nutrition.gramShort')}
+                                                    </MenuItem>
+                                                    {weightUnits.map(unit => (
+                                                        <MenuItem key={unit.id} value={unit.id.toString()}>
+                                                            {unit.name} ({unit.grams}g)
+                                                        </MenuItem>
+                                                    ))}
+                                                </Select>
+                                            ) : (
+                                                t('nutrition.gramShort')
+                                            )}
+                                        </InputAdornment>
+                                    )
+                                },
+                                htmlInput: { inputMode: 'decimal' }
+                            }}
+                            error={formik.touched.amount && Boolean(formik.errors.amount)}
+                            helperText={formik.touched.amount && formik.errors.amount}
+                            {...formik.getFieldProps('amount')}
+                        />
+                        {mealObjs.length > 0 && <Autocomplete
+                            value={selectedMeal}
+                            options={mealObjs.map(e => e.id)}
+                            getOptionLabel={option => mealObjs.find(e => e.id === option)!.displayName!}
+                            onChange={(event, newValue) => setSelectedMeal(newValue)}
+                            renderInput={params => (
+                                <TextField
+                                    label={t("nutrition.meal")}
+                                    value={selectedMeal}
+                                    {...params}
+                                />
+                            )}
+                        />}
+                        <LocalizationProvider dateAdapter={AdapterLuxon} adapterLocale={i18n.language}>
+
+                            <DateTimePicker
+                                format="yyyy-MM-dd HH:mm"
+                                label={t('date')}
+                                value={dateValue}
+                                disableFuture={true}
+                                onChange={(newValue) => {
+                                    formik.setFieldValue('datetime', newValue?.toJSDate());
+
+                                    setDateValue(newValue);
+                                }}
+                                shouldDisableDate={(date) => {
+
+                                    // Allow the date of the current weight entry, since we are editing it
+                                    // @ts-ignore - date is a Luxon DateTime!
+                                    if (entry && dateToYYYYMMDD(entry.datetime) === dateToYYYYMMDD(date.toJSDate())) {
+                                        return false;
+                                    }
+
+                                    // all other dates are allowed
+                                    return false;
+                                }}
+                            />
+                        </LocalizationProvider>
+                        <FormQueryErrors mutationQuery={entry ? editDiaryQuery : addDiaryQuery} />
+                        <FormQueryErrors mutationQuery={deleteDiaryQuery} />
+                        <Stack direction="row" spacing={2} sx={{ justifyContent: "end" }}>
+                            {(closeFn !== undefined && entry !== undefined)
+                                && <Button color="error" variant="outlined" onClick={handleDelete}>
+                                    {t('delete')}
+                                </Button>}
+
+                            {closeFn !== undefined
+                                && <Button color="primary" variant="outlined" onClick={() => closeFn()}>
+                                    {t('close')}
+                                </Button>}
+                            <Button color="primary" variant="contained" type="submit">
+                                {t('submit')}
+                            </Button>
+                        </Stack>
+                    </Stack>
+                </Form>
+            )}
+        </Formik>)
+    );
+};

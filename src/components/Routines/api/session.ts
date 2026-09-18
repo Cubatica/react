@@ -1,0 +1,90 @@
+import { attachExercises } from "@/components/Routines/api/workoutLogs";
+import { WorkoutLog, WorkoutLogAdapter } from "@/components/Routines/models/WorkoutLog";
+import { WorkoutSession, WorkoutSessionAdapter } from "@/components/Routines/models/WorkoutSession";
+import { API_MAX_PAGE_SIZE, ApiPath } from "@/core/lib/consts";
+import { fetchPaginated } from "@/core/lib/requests";
+import { makeHeader, makeUrl } from "@/core/lib/url";
+import axios from 'axios';
+
+export type SessionQueryOptions = {
+    filtersetQuerySessions?: object,
+    filtersetQueryLogs?: object,
+}
+
+/*
+ * Look up sessions, e.g. the ones of a single day
+ *
+ * A day can hold several sessions, so this returns all of them in the order the
+ * server sends them, by start time.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const searchSessions = async (queryParams: Record<string, any>): Promise<WorkoutSession[]> => {
+    const response = await axios.get(
+        makeUrl(ApiPath.SESSION, { query: queryParams }),
+        { headers: makeHeader() }
+    );
+
+    const adapter = new WorkoutSessionAdapter();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return response.data.results.map((session: any) => adapter.fromJson(session));
+};
+
+export const getSessions = async (options?: SessionQueryOptions): Promise<WorkoutSession[]> => {
+
+    const { filtersetQuerySessions = {}, filtersetQueryLogs = {} } = options || {};
+
+    const sessionAdapter = new WorkoutSessionAdapter();
+    const logAdapter = new WorkoutLogAdapter();
+    const result: WorkoutSession[] = [];
+    const logs: WorkoutLog[] = [];
+
+    // Fetch all logs first
+    for await (const logPage of fetchPaginated(
+        makeUrl(
+            ApiPath.WORKOUT_LOG,
+            { query: { limit: API_MAX_PAGE_SIZE, ...filtersetQueryLogs } }
+        ),
+        makeHeader()
+    )) {
+        for (const logData of logPage) {
+            logs.push(logAdapter.fromJson(logData));
+        }
+    }
+
+    await attachExercises(logs);
+
+    for await (const sessionPage of fetchPaginated(
+        makeUrl(
+            ApiPath.SESSION,
+            { query: { limit: API_MAX_PAGE_SIZE, ...filtersetQuerySessions } }
+        ), makeHeader()
+    )) {
+        for (const sessionData of sessionPage) {
+            const session = sessionAdapter.fromJson(sessionData);
+            session.logs = logs.filter(log => log.sessionId === session.id);
+            result.push(session);
+        }
+    }
+
+    return result;
+};
+
+export const addSession = async (session: WorkoutSession): Promise<WorkoutSession> => {
+    const response = await axios.post(
+        makeUrl(ApiPath.SESSION,),
+        session.toJson(),
+        { headers: makeHeader() }
+    );
+
+    return new WorkoutSessionAdapter().fromJson(response.data);
+};
+
+export const editSession = async (session: WorkoutSession): Promise<WorkoutSession> => {
+    const response = await axios.patch(
+        makeUrl(ApiPath.SESSION, { id: session.id! }),
+        session.toJson(),
+        { headers: makeHeader() }
+    );
+
+    return new WorkoutSessionAdapter().fromJson(response.data);
+};

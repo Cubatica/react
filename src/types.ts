@@ -1,0 +1,144 @@
+import { ApiIngredientThumbnailType } from "@/components/Nutrition/models/IngredientImageThumbnails";
+
+export interface ApiMuscleType {
+    id: number,
+    name: string,
+    is_front: boolean,
+    image_url_main: string,
+    image_url_secondary: string,
+}
+
+export interface ApiCategoryType {
+    id: number,
+    name: string,
+}
+
+export interface ApiLanguageType {
+    id: number,
+    short_name: string,
+    full_name: string,
+}
+
+export interface ApiSettingWeightUnitType {
+    id: number,
+    name: string,
+}
+
+export interface ApiSettingRepUnitType {
+    id: number,
+    name: string,
+}
+
+export interface ApiCommentType {
+    id: number,
+    uuid: string,
+    comment: string,
+}
+
+export interface ApiAliasType {
+    id: number,
+    uuid: string,
+    alias: string,
+}
+
+export interface ApiMeasurementCategoryType {
+    id: string,
+    name: string,
+    unit: string,
+    metric_type: string,
+    is_official: boolean,
+    parent: string | null,
+    order: number,
+    chart_type: string | null,
+    /** Free-form settings object, see ChartConfig for the keys this release writes */
+    chart_config: Record<string, unknown> | null,
+}
+
+export const NUTRI_SCORES = ['a', 'b', 'c', 'd', 'e'] as const;
+export type NutriScoreValue = typeof NUTRI_SCORES[number];
+
+export interface ApiIngredientType {
+    id: number,
+    uuid: string,
+    code: string,
+    name: string,
+    energy: number,
+    protein: string,
+    carbohydrates: string,
+    carbohydrates_sugar: string | null,
+    fat: string,
+    fat_saturated: string | null,
+    fiber: string | null,
+    sodium: string | null,
+    license: {
+        id: number,
+        full_name: string,
+        short_name: string,
+        url: string
+    },
+    license_author: string,
+    is_vegan: boolean | null,
+    is_vegetarian: boolean | null,
+    nutriscore: NutriScoreValue | null,
+    image: ApiIngredientImageType | null,
+    thumbnails: ApiIngredientThumbnailType | null,
+    weight_units: ApiIngredientWeightUnitType[],
+}
+
+export type ApiIngredientImageType = {
+    id: number,
+    uuid: string,
+    ingredient_id: number,
+    ingredient_uuid: string,
+    image: string,
+    created: string,
+    last_update: string,
+    size: number,
+    width: number,
+    height: number,
+    license: number,
+    license_title: string,
+    license_object_url: string,
+    license_author: string,
+    license_author_url: string,
+    license_derivative_source_url: string
+}
+
+
+export type ApiIngredientWeightUnitType = {
+    id: number,
+    ingredient: number,
+    gram: number,
+    name: string,
+}
+
+export interface ApiNutritionalPlanType {
+    id: string,
+    creation_date: string,
+    start: string,
+    end: string | null,
+    description: string,
+    only_logging: boolean,
+    goal_energy: number | null,
+    goal_protein: number | null,
+    goal_fiber: number | null,
+    goal_carbohydrates: number | null,
+    goal_fat: number | null,
+}
+
+
+export interface ApiMeasurementEntryType {
+    id: string,
+    category: string,
+    date: string,
+    value: number,
+    notes: string,
+    source: string,
+    external_id: string | null,
+    extra_data: { unit?: string, [key: string]: unknown },
+}
+
+export interface ApiEquipmentType {
+    id: number,
+    name: string,
+}

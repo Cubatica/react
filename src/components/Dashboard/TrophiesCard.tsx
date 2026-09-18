@@ -1,0 +1,88 @@
+import { LoadingPlaceholder } from "@/core/ui/LoadingWidget/LoadingWidget";
+import { UserTrophy, useUserTrophiesQuery } from "@/components/Trophies";
+import { makeLink, WgerLink } from "@/core/lib/url";
+import { Button, Card, CardContent, CardHeader, CardMedia, Tooltip, Typography, } from "@mui/material";
+import Box from "@mui/system/Box";
+import Stack from "@mui/system/Stack";
+import React from "react";
+import { useTranslation } from "react-i18next";
+import { DashboardCard } from "./DashboardCard";
+
+export const TrophiesCard = () => {
+    const trophiesQuery = useUserTrophiesQuery();
+
+    if (trophiesQuery.isLoading) {
+        return <LoadingPlaceholder />;
+    }
+
+    // PR trophies have their own treatment and are kept out of this widget
+    const trophies = (trophiesQuery.data ?? []).filter((userTrophy) => userTrophy.trophy.type !== 'pr');
+
+    return trophies.length > 0
+        ? <TrophiesCardContent trophies={trophies} />
+        : <EmptyTrophiesCardContent />;
+};
+
+function TrophiesCardContent(props: { trophies: UserTrophy[] }) {
+    const { t, i18n } = useTranslation();
+
+    const tooltipWidget = (tooltip: string) => <Typography variant="body2" sx={{ textAlign: 'center' }}>
+        {tooltip}
+    </Typography>;
+
+    return (<DashboardCard
+        title={''}
+        scrollable={false}
+        actions={
+            <>
+                <Button
+                    size="small"
+                    href={makeLink(WgerLink.TROPHIES, i18n.language)}
+                >
+                    {t("seeDetails")}
+                </Button>
+            </>
+        }
+    >
+        <Box sx={{ overflowX: 'auto', width: '100%' }}>
+            <Stack direction="row" spacing={3} sx={{ display: 'flex' }}>
+                {/* Keyed by the user-trophy row: repeatable trophies can
+                  * legitimately award the same trophy more than once */}
+                {props.trophies.map((userTrophy) => (
+                    <Tooltip title={tooltipWidget(userTrophy.trophy.description)} arrow key={userTrophy.id}>
+                        <Card sx={{ width: 80, flex: '0 0 auto', boxShadow: 'none' }}>
+                            <CardMedia
+                                component="img"
+                                image={userTrophy.trophy.image}
+                                title={userTrophy.trophy.name}
+                            />
+                            <CardContent>
+                                <Typography gutterBottom variant="body2" component="div" sx={{ textAlign: "center" }}>
+                                    {userTrophy.trophy.name}
+                                </Typography>
+                            </CardContent>
+                        </Card>
+                    </Tooltip>
+                ))}
+            </Stack>
+        </Box>
+    </DashboardCard>);
+}
+
+export const EmptyTrophiesCardContent = () => {
+    const [t] = useTranslation();
+
+    return (<>
+        <Card sx={{ paddingTop: 0, height: "100%", }}>
+            <CardHeader
+                title={t("trophies.trophies")}
+                sx={{ paddingBottom: 0 }}
+            />
+            <CardContent>
+                <Typography variant="h6" sx={{ mr: 3 }}>
+                    {t('nothingHereYet')}
+                </Typography>
+            </CardContent>
+        </Card>
+    </>);
+};

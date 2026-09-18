@@ -1,0 +1,39 @@
+import { Day } from "@/components/Routines/models/Day";
+import { SlotData, SlotDataAdapter } from "@/components/Routines/models/SlotData";
+import { Adapter } from "@/core/lib/Adapter";
+import { yyyymmddToDate } from "@/core/lib/date";
+
+export class RoutineDayData {
+
+    slots: SlotData[] = [];
+
+    constructor(
+        public iteration: number,
+        public date: Date,
+        public label: string,
+        public day: Day | null,
+        slots?: SlotData[],
+    ) {
+        this.slots = slots ?? [];
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    static fromJson(json: any) {
+        return adapter.fromJson(json);
+    }
+}
+
+
+class RoutineDayDataAdapter implements Adapter<RoutineDayData> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fromJson = (item: any) => new RoutineDayData(
+        item.iteration,
+        yyyymmddToDate(item.date),
+        item.label,
+        item.day != null ? Day.fromJson(item.day) : null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        item.slots.map((slot: any) => new SlotDataAdapter().fromJson(slot))
+    );
+}
+
+const adapter = new RoutineDayDataAdapter();

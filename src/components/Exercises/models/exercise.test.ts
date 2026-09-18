@@ -1,0 +1,88 @@
+import { Exercise, ExerciseAdapter } from "@/components/Exercises/models/exercise";
+import { Language } from "@/components/Exercises/models/language";
+import {
+    testExerciseBenchPress,
+    testExerciseSquats,
+    testLanguageEnglish,
+    testLanguageGerman
+} from "@/tests/exerciseTestdata";
+import { responseApiExerciseInfo, testApiExercise1 } from "@/tests/responseApi";
+
+
+describe("Exercise base model tests", () => {
+
+    test('translation helper - default language', () => {
+
+        // Assert
+        expect(testExerciseSquats.getTranslation().name).toBe("Squats");
+    });
+
+    test('translation helper - explicit language - English', () => {
+
+        // Assert
+        expect(testExerciseSquats.getTranslation(testLanguageEnglish).name).toBe("Squats");
+    });
+
+    test('translation helper - explicit language - German', () => {
+
+        // Assert
+        expect(testExerciseSquats.getTranslation(testLanguageGerman).name).toBe("Kniebeuge");
+    });
+
+    test('translation helper - unknown language', () => {
+
+        // Arrange
+        const unknownLanguage = new Language(4, "kg", "Klingon");
+
+        // Assert
+        expect(testExerciseSquats.getTranslation(unknownLanguage).name).toBe("Squats");
+    });
+
+    test('translation helper - falls back to the first translation without english', () => {
+
+        // Arrange
+        // Self hosted instances can have exercises without an english translation
+        const exercise = new Exercise({
+            ...testExerciseSquats,
+            translations: [testExerciseSquats.translations[1]]
+        });
+
+        // Assert
+        expect(exercise.getTranslation(testLanguageEnglish).name).toBe("Kniebeuge");
+        expect(exercise.getTranslation().name).toBe("Kniebeuge");
+    });
+
+    test('adapter - from json', () => {
+
+        // Act
+        const adapter = new ExerciseAdapter();
+        const result = adapter.fromJson(responseApiExerciseInfo.results[0]);
+
+        // Assert
+        expect(result).toEqual(testApiExercise1);
+    });
+
+    test('adapter - to json', () => {
+
+        // Assert
+        const adapter = new ExerciseAdapter();
+        expect(adapter.toJson(testExerciseSquats)).toStrictEqual({
+            id: 345,
+            uuid: "c788d643-150a-4ac7-97ef-84643c6419bf",
+            category: 2,
+            equipment: [1, 42],
+            muscles: [1, 4],
+
+            muscles_secondary: [],
+            images: [],
+        });
+    });
+
+    test('availableLanguages', () => {
+
+        // Assert
+        expect(testExerciseSquats.availableLanguages).toEqual([2, 1]);
+        expect(testExerciseBenchPress.availableLanguages).toEqual([2]);
+    });
+});
+

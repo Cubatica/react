@@ -1,0 +1,172 @@
+import { Category, CategoryAdapter, } from "@/components/Exercises/models/category";
+import { Equipment, EquipmentAdapter, } from "@/components/Exercises/models/equipment";
+import { ExerciseImage, ExerciseImageAdapter, } from "@/components/Exercises/models/image";
+import { Language } from "@/components/Exercises/models/language";
+import { Muscle, MuscleAdapter } from "@/components/Exercises/models/muscle";
+import { Translation, TranslationAdapter } from "@/components/Exercises/models/translation";
+import { ExerciseVideo, ExerciseVideoAdapter } from "@/components/Exercises/models/video";
+import { Adapter } from "@/core/lib/Adapter";
+import { ENGLISH_LANGUAGE_ID } from "@/core/lib/consts";
+
+export type ExerciseConstructorParams = {
+    id: number | null;
+    uuid: string | null;
+    category: Category;
+    equipment?: Equipment[];
+    muscles?: Muscle[];
+    musclesSecondary?: Muscle[];
+    images?: ExerciseImage[];
+    variationGroup?: string | null;
+    lastUpdateGlobal?: Date;
+    translations?: Translation[];
+    videos?: ExerciseVideo[];
+    authors?: string[];
+};
+
+export class Exercise {
+    id: number | null;
+    uuid: string | null;
+    variationGroup: string | null;
+    category: Category;
+    lastUpdateGlobal: Date;
+
+    muscles: Muscle[] = [];
+    musclesSecondary: Muscle[] = [];
+    images: ExerciseImage[] = [];
+    videos: ExerciseVideo[] = [];
+    equipment: Equipment[] = [];
+    authors: string[] = [];
+    translations: Translation[] = [];
+
+    constructor(init: ExerciseConstructorParams) {
+        this.id = init.id;
+        this.uuid = init.uuid;
+        this.category = init.category;
+        this.variationGroup = init.variationGroup ?? null;
+        this.lastUpdateGlobal = init.lastUpdateGlobal ?? new Date();
+
+        this.muscles = init.muscles ?? [];
+        this.musclesSecondary = init.musclesSecondary ?? [];
+        this.images = init.images ?? [];
+        this.videos = init.videos ?? [];
+        this.equipment = init.equipment ?? [];
+        this.authors = init.authors ?? [];
+        this.translations = init.translations ?? [];
+    }
+
+    // Returns the users' translation or English as a fallback
+    //
+    // Note that we still check for the case that no english translation can be
+    // found. While this can't happen for the "regular" wger server, other local
+    // instances might have deleted the english translation or added new exercises
+
+    /**
+     * Returns a list with the available languages for this exercise
+     */
+    get availableLanguages(): number[] {
+        return this.translations.map(t => t.language);
+    }
+
+    get mainImage(): ExerciseImage | undefined {
+        return this.images.find(i => i.isMain);
+    }
+
+    get sideImages(): ExerciseImage[] {
+        return this.images.filter(i => !i.isMain);
+    }
+
+    // without an English translation.
+    getTranslation(userLanguage?: Language): Translation {
+        const languageId = userLanguage != null ? userLanguage.id : ENGLISH_LANGUAGE_ID;
+
+        let translation = this.translations.find(t => t.language === languageId);
+        if (!translation) {
+            translation = this.translations.find(t => t.language === ENGLISH_LANGUAGE_ID);
+        }
+
+        if (!translation) {
+            //console.warn(`No translation found for exercise base ${this.uuid} (${this.id}) for language ${language}`);
+            return this.translations[0];
+        }
+        return translation!;
+    }
+
+}
+
+
+export class ExerciseAdapter implements Adapter<Exercise> {
+    /*
+     * needs the items from exerciseinfo
+     */
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fromJson(item: any): Exercise {
+        const categoryAdapter = new CategoryAdapter();
+        const equipmentAdapter = new EquipmentAdapter();
+        const muscleAdapter = new MuscleAdapter();
+        const imageAdapter = new ExerciseImageAdapter();
+        const translationAdapter = new TranslationAdapter();
+        const videoAdapter = new ExerciseVideoAdapter();
+
+        const exercise = new Exercise({
+            id: item.id,
+            uuid: item.uuid,
+            category: categoryAdapter.fromJson(item.category),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            equipment: item.equipment.map((e: any) => equipmentAdapter.fromJson(e)),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            muscles: item.muscles.map((m: any) => muscleAdapter.fromJson(m)),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            musclesSecondary: item.muscles_secondary.map((m: any) => muscleAdapter.fromJson(m)),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            images: item.images.map((i: any) => imageAdapter.fromJson(i)),
+            variationGroup: item.variation_group,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            translations: item.translations.map((t: any) => translationAdapter.fromJson(t)),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            videos: item.videos.map((t: any) => videoAdapter.fromJson(t)),
+            authors: item.total_authors_history,
+            lastUpdateGlobal: new Date(item.last_update_global),
+        });
+
+        if (!exercise.translations.some(t => t.language === ENGLISH_LANGUAGE_ID)) {
+            console.warn(`No english translation found for exercise base ${exercise.uuid}!`);
+        }
+
+        if (exercise.translations.length === 0) {
+            throw new Error(`No translations found for exercise base ${exercise.uuid}!`);
+        }
+
+        return exercise;
+    }
+
+    /**
+     * Don't return all properties, since not all items can be updated (they would
+     * be ignored by the server, but it's better to not send too much anyway)
+     */
+    toJson(item: Exercise) {
+        return {
+            id: item.id,
+            uuid: item.uuid,
+            category: item.category.id,
+            equipment: item.equipment.map(e => e.id),
+            muscles: item.muscles.map(m => m.id),
+            // eslint-disable-next-line camelcase
+            muscles_secondary: item.musclesSecondary.map(m => m.id),
+            images: item.images.map(i => new ExerciseImageAdapter().toJson(i)),
+        };
+    }
+}
+
+export type ImageFormData = {
+    url: string;
+    file?: File;    // When editing an existing image, this is undefined
+    author: string;
+    authorUrl: string;
+    title: string,
+    objectUrl: string,
+    derivativeSourceUrl: string;
+    style: number;
+    isAi: boolean;
+};
+
